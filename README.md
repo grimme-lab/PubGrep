@@ -1,12 +1,12 @@
 ## PubGrep
 
 <div align="center">
-<img src="./PubGrep.png" alt="Workflow using PubGrep, CREST and CENSO">
+<img src="./PubGrep.png" alt="Workflow using PubGrep, CREST and CENSO" width="600">
 </div>
 
-This projects provides a simple bash script, that uses the [PUG REST](https://pubchem.ncbi.nlm.nih.gov/docs/pug-rest) API provided by the National Library of Medicine to automatically access the [PubChem](https://pubchem.ncbi.nlm.nih.gov/) Database, based on a list of readily available input data, like CAS numbers, compound names or PubChem CIDs. It can be used to automatically get random conformer structure data (``.sdf`` files) from the PubChem database, if it is available. 
+This project provides a simple bash script, that uses the [PUG REST](https://pubchem.ncbi.nlm.nih.gov/docs/pug-rest) API provided by the National Library of Medicine to automatically access the [PubChem](https://pubchem.ncbi.nlm.nih.gov/) Database, based on a list of readily available input data, like CAS numbers, compound names or PubChem CIDs. It can be used to automatically get random conformer structure data (``.sdf`` files) from the PubChem database, if it is available. 
 
-Since the structures obtained with this program are not necessarily the lowest lying conformers, it is recommended to use conformer screening with [CREST](https://github.com/crest-lab) and [CENSO](https://github.com/grimme-lab/CENSO) aftwerwards.
+Since the structures obtained with this program are not necessarily the lowest-lying conformers, it is recommended to use conformer screening with [CREST](https://github.com/crest-lab) and [CENSO](https://github.com/grimme-lab/CENSO) afterward.
 
 If you are using this script extensively for your research, please consider citing the [publication](https://doi.org/10.1039/D3RA01705B).
 
@@ -73,7 +73,7 @@ PubGrep --help
 
 # Single Structure mode.
 
-You can also use PubGrep to obtain a single structure quickly from the PubChem Database, by adding an identifier directly to the call, instead of using the list based input.
+You can also use PubGrep to obtain a single structure quickly from the PubChem Database by adding an identifier directly to the call instead of using the list-based input.
 
 ```
 PubGrep caffeine 
