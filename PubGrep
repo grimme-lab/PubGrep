@@ -314,11 +314,11 @@ if [ $output == "sdf" ]; then
             curl -X get https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/cid/$cid/sdf > $cid.sdf 2>/dev/null
             if [ $to3 == "y" ]; then
                echo "Using xTB for an attempt to convert the 2D structure to 3D."
-               $xtb $cid.sdf --gfn 2 --sp > xtb_3d.out
+               $xtb $cid.sdf --gfn 2 --sp --ceasefiles > xtb_3d.out
                if grep -q "converted geometry written to" xtb_3d.out; then
                   echo "3D conversion successfull."
                   mv gfnff_convert.sdf .$cid.sdf
-                  rm *
+                  rm list.tmp convert.log mdrestart xtbmdok xtb.trj
                   mv .$cid.sdf $cid.sdf
                fi
             fi
@@ -350,11 +350,11 @@ if [ $output == "sdf" ]; then
             curl -X get https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/cid/$cid/sdf > $cid.sdf 2>/dev/null
             if [ $to3 == "y" ]; then
                echo "Using xTB for an attempt to convert the 2D structure to 3D."
-               $xtb $cid.sdf --gfn 2 --sp > xtb_3d.out
+               $xtb $cid.sdf --gfn 2 --sp --ceasefiles > xtb_3d.out
                if grep -q "converted geometry written to" xtb_3d.out; then
                   echo "3D conversion successfull."
                   mv gfnff_convert.sdf .$cid.sdf
-                  rm *
+                  rm list.tmp convert.log mdrestart xtbmdok xtb.trj  
                   mv .$cid.sdf $cid.sdf
                fi
             fi
