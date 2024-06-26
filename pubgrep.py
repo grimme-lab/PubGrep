@@ -415,7 +415,7 @@ def pubgrep(
     if output_format == "list":
         with open("found_compounds.csv", "w", encoding="utf-8") as file:
             for comp in found_compounds:
-                print(compound, file=file)
+                print(comp, file=file)
     elif output_format == "sdf":
         failed_compounds = []
         successful_compounds = []
@@ -446,7 +446,7 @@ def pubgrep(
         if successful_compounds:
             with open("compounds.csv", "w", encoding="utf-8") as file:
                 for comp in successful_compounds:
-                    print(compound, file=file)
+                    print(comp, file=file)
     elif output_format in ["logp", "logP"]:
         raise NotImplementedError("LogP calculation is not implemented yet.")
         # with open("pubchem_logP.data", "w", encoding="utf-8") as file:
