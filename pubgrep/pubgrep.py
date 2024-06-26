@@ -12,9 +12,27 @@ import shutil
 import requests
 
 try:
-    from ._version import version as __version__  # type: ignore # pylint: disable=unused-import
+    from version import __version__  # type: ignore # pylint: disable=import-error
 except ImportError:
     __version__ = "0.0.0"
+
+
+def header() -> str:
+    """
+    This function is used to print the header of the program.
+    """
+    headerstr = (
+        "---------------------------------------------------------------------\n"
+        f"                          PubGrep {__version__}\n"
+        "- This Program tries to search CIDs from the Pubchem Database based -\n"
+        "- on a list of compounds given as Input. Afterwards it creates sdf  -\n"
+        "-   Files for each Compound given in an appropriate subdirectory.   -\n"
+        "-     If you are using this program extensively (like, a lot!)      -\n"
+        "-   for your Research, please consider citing 10.1039/D3RA01705B    -\n"
+        "-                          MS, MM, 2021-2024                        -\n"
+        "---------------------------------------------------------------------\n\n"
+    )
+    return headerstr
 
 
 ### URL request functions
@@ -294,9 +312,10 @@ def get_args() -> argparse.Namespace:
     This function is used to parse the command line arguments.
     """
     parser = argparse.ArgumentParser(
-        description="Search CIDs from the PubChem Database based on a list of compounds."
+        description=header()
+        + "\nThis program searches CIDs from the PubChem Database based on a list of compounds.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    # Required arguments (no flag but positional arguments, doesn't matter how many)
     parser.add_argument(
         "compounds",
         help="List of compounds to search for.",
@@ -408,11 +427,10 @@ def pubgrep(
     if isinstance(compounds, list):
         for compound in compounds:
             compound_list.append(compound)
-    if isinstance(compounds, Path):
-        if Path(compounds).is_file():
-            with open(compounds, "r", encoding="utf-8") as file:
-                compound_list = [line.strip() for line in file.readlines()]
-    if isinstance(compounds, str):
+    elif isinstance(compounds, Path) or Path(compounds).is_file():  # type: ignore
+        with open(compounds, "r", encoding="utf-8") as file:  # type: ignore
+            compound_list = [line.strip() for line in file.readlines()]
+    elif isinstance(compounds, str):
         compound_list.append(compounds)
 
     if compound_list == []:

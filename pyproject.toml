@@ -32,4 +32,4 @@ package-dir = { "" = "pubgrep" }
 
 
 [tool.setuptools_scm]
-write_to = "pubgrep/_version.py"
+write_to = "pubgrep/version.py"
