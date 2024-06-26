@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools", "wheel", "setuptools_scm"]
+requires = ["setuptools>=64", "wheel", "setuptools_scm>=8"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -32,4 +32,4 @@ package-dir = { "" = "pubgrep" }
 
 
 [tool.setuptools_scm]
-write_to = "pubgrep_version.py"
+write_to = "pubgrep/_version.py"

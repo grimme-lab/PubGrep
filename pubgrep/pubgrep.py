@@ -7,7 +7,7 @@ import shutil
 import requests
 
 try:
-    from .pubgrep_version import version as __version__ # type: ignore
+    from ._version import version as __version__ # type: ignore
 except ImportError:
     __version__ = "0.0.0"
 
