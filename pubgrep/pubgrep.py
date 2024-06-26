@@ -1,3 +1,8 @@
+"""
+This module contains code for interacting with the power user interface of the PubChem database
+and different related functions.
+"""
+
 from urllib.parse import quote
 import argparse
 from pathlib import Path
@@ -7,13 +12,12 @@ import shutil
 import requests
 
 try:
-    from ._version import version as __version__ # type: ignore
+    from ._version import version as __version__  # type: ignore # pylint: disable=unused-import
 except ImportError:
     __version__ = "0.0.0"
 
+
 ### URL request functions
-
-
 def rawurlencode(string):
     """
     This function is used to encode the string to be used in the URL.
@@ -59,8 +63,6 @@ def search_compound(compound, input_format):
 
 
 ### Class that combines the compound specific data
-
-
 class Compound:
     """
     This class handles everything related to a compound.
@@ -125,7 +127,8 @@ class Compound:
         """
         if self.verbosity > 1:
             print(
-                f"No 3D Conformer Data found for CID {self.cid}. Retrieving 2D Conformer Data instead."
+                f"No 3D Conformer Data found for CID {self.cid}."
+                + "Retrieving 2D Conformer Data instead."
             )
         response = requests.get(
             f"https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/cid/{self.cid}/sdf",
@@ -221,8 +224,6 @@ class Compound:
 
 
 ### Technical functions for running and parsing xtb
-
-
 def run_xtb(xtb_path: Path, calc_dir: Path, args: list) -> tuple:
     """
     This function is used to run the xtb command.
@@ -283,8 +284,6 @@ def get_charge_from_xtb_output(xtb_out: str, verbosity: int) -> int:
 
 
 ### Argument parsing functions
-
-
 def get_args() -> argparse.Namespace:
     """
     This function is used to parse the command line arguments.
