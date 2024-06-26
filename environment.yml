@@ -3,7 +3,7 @@ name: pubgrep
 dependencies:
   - python=3.12
   - pip
-  - xtb
+  - xtb>=6.6.1
   - requests
   - pip:
     - types-requests 

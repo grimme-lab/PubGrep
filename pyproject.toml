@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools", "wheel"]
+requires = ["setuptools", "wheel", "setuptools_scm"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -21,8 +21,15 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
 ]
-dependencies = ["requests", "xtb", "types-requests"]
+dependencies = ["requests", "types-requests"]
 requires-python = ">=3.12"
 
 [project.scripts]
 pubgrep = "pubgrep:cli"
+
+[tool.setuptools]
+package-dir = { "" = "pubgrep" }
+
+
+[tool.setuptools_scm]
+write_to = "pubgrep_version.py"

@@ -1,0 +1,397 @@
+#!/bin/bash
+
+rawurlencode() {
+  local string="${1}"
+  local strlen=${#string}
+  local encoded=""
+  local pos c o
+
+  for (( pos=0 ; pos<strlen ; pos++ )); do
+     c=${string:$pos:1}
+     case "$c" in
+        [-_.~a-zA-Z0-9] ) o="${c}" ;;
+        * )               printf -v o '%%%02x' "'$c"
+     esac
+     encoded+="${o}"
+  done
+  echo "${encoded}"    # You can either set a return variable (FASTER) 
+  REPLY="${encoded}"   #+or echo the result (EASIER)... or both... :p
+}
+
+echo "---------------------------------------------------------------------"
+echo "-                          PubGrep 0.3.2                            -"
+echo "- This Program tries to search CIDs from the Pubchem Database based -"
+echo "- on a list of compounds given as Input. Afterwards it creates sdf  -"
+echo "-   Files for each Compound given in an appropriate subdirectory.   -"
+echo "-     If you are using this program extensively (like, a lot!)      -"
+echo "-   for your Research, please consider citing 10.1039/D3RA01705B    -"
+echo "-                          MS, 2021-2023                            -"
+echo "---------------------------------------------------------------------"
+echo ""
+
+to3="n"
+xtb=$(which xtb)
+if [ -e $xtb ]; then
+   to3="y"
+fi
+
+skip="n"
+argcheck=y
+optstr=$@
+compounds=""
+compound_list=""
+input="name"
+helper="n"
+output="sdf"
+single=false
+while [ "$argcheck" = "y" ]; do
+   if [ -n "$1" ]; then
+      case $1 in
+         "--input" ) shift; input=$1;;
+         "--help" ) helper="y";;
+         "--output" ) shift; output=$1;;
+         "--skip" ) shift; skip="y";;
+         * )
+            if [ ! -z $compounds ]; then
+               echo "ERROR: Too many positional arguments."
+               exit
+            else
+               compounds=$1
+            fi
+            ;;
+      esac
+      shift
+   else
+      argcheck=n
+   fi
+done
+
+if [ $helper == "y" ]; then
+   echo "This Programm uses a commandline interface to determine the file"
+   echo "containing the Compound Data and the Input format."
+   echo "Uses a compound list or a single compound as input."
+   echo "Usage: PubGrep [compound/compound_list] [options]"
+   echo "Possible options are:"
+   echo "--input [name, cid, smiles, cas, inchi]: Determines the input format."
+   echo "--output [sdf, logP, list]: Determines the output data."
+   exit
+fi
+
+if [ ! -s $compounds ]; then
+   echo "Single compound mode for "$compounds"."
+   echo $compounds > list.tmp
+   compound_list="list.tmp"
+   single=true
+else
+   echo "Multiple compound mode, reading input from "$compounds"."
+   compound_list=$compounds
+fi
+
+if [ ! -f $compound_list ] || [ -z $compound_list ]; then
+   echo "No Compound list given or Compound List does not exist."
+   echo "To get help, use --help."
+   exit
+fi
+
+if [ -e error ]; then
+   rm error
+fi
+
+echo "Testing Pubchem Server..."
+curl -X get https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/cid/1/cids/TXT > test.tmp 2>/dev/null
+
+if [ ! -s test.tmp ]; then
+   echo "No connection could be established. Check if you have access to the internet." |tee error
+   rm test.tmp
+   exit
+fi
+
+tester=$(cat test.tmp)
+if [ $tester == "1" ]; then
+   echo "Pubchem Server is working fine."
+   echo ""
+   rm test.tmp
+else
+   echo "Some Problem occured. Check error message."
+   cat test.tmp > error
+   rm test.tmp
+   exit
+fi
+
+if [ ! $skip == "y" ]; then
+
+if [ $input == "inchi" ]; then
+
+   if [ -f cid.tmp ]; then
+      rm cid.tmp
+   fi
+
+   if [ -f not_found.compound ]; then
+      rm not_found.compound
+   fi
+
+   while read -r line; do
+      line_nows="$(echo -e "${line}" | tr -d '[:space:]')"
+      curl --data "inchi=$line_nows" https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/inchi/cids/TXT > cid.tmp 2>/dev/null
+      cid=$(cat cid.tmp)
+      if [[ $cid == *"PUGREST.NotFound"* ]] || [[ $cid == *"PUGREST.BadRequest"* ]]; then
+         echo "Compound: "$line_nows, "CID not found, check your Input."
+         echo $line_nows >> not_found.compound
+      else
+         echo "Compound: "$line_nows", CID:" $cid
+         echo $line_nows >> found.compound
+         echo $cid >> found.cid
+      fi
+   done < $compound_list
+
+   paste found.compound found.cid > found.results 2> error
+   rm found.compound found.cid cid.tmp 2> error
+
+elif [ $input == "name" ]; then
+
+   if [ -f cid.tmp ]; then
+      rm cid.tmp
+   fi
+
+   if [ -f not_found.compound ]; then
+      rm not_found.compound
+   fi
+
+   while read -r line; do
+      line_nows="$(echo -e "${line}" | tr -d '[:space:]')"
+      url_encoded=$( rawurlencode "$line_nows")
+      curl -X get https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/name/$url_encoded/cids/TXT > cid.tmp 2>/dev/null
+      cid=$(cat cid.tmp)
+      if [[ $cid == *"PUGREST.NotFound"* ]] || [[ $cid == *"PUGREST.BadRequest"* ]]; then
+         echo "Compound: "$line_nows, "CID not found, check your Input."
+         echo $line_nows >> not_found.compound
+      else
+         echo "Compound: "$line_nows", CID:" $cid
+         echo $line_nows >> found.compound
+         echo $cid >> found.cid
+      fi
+   done < $compound_list
+
+   paste found.compound found.cid > found.results 2> error
+   rm found.compound found.cid cid.tmp 2> error
+
+elif [ $input == "cid" ]; then
+
+   if [ -f name.tmp ]; then
+      rm name.tmp
+   fi
+
+   if [ -f not_found.compound ]; then
+      rm not_found.compound
+   fi
+
+   while read -r line; do
+      line_nows="$(echo -e "${line}" | tr -d '[:space:]')"
+      curl -X get https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/cid/$line_nows/property/IUPACname/TXT > name.tmp 2>/dev/null
+      name=$(cat name.tmp)
+      if [[ $name == *"PUGREST.NotFound"* ]] || [[ $name == *"PUGREST.BadRequest"* ]]; then
+         echo "Compound: "$line_nows, "Name not found, check your Input."
+         echo $line_nows >> not_found.compound
+      else
+         echo "Compound: "$line_nows", Name:" $name
+         echo $line_nows >> found.cid
+         namenows="$(echo -e "$name" | tr -d '[:space:]')"
+         echo $namenows >> found.compound
+      fi
+   done < $compound_list
+
+   paste found.compound found.cid > found.results
+   rm found.compound found.cid name.tmp
+elif [ $input == "smile" ] || [ $input == "smiles" ]; then
+
+   if [ -f name.tmp ]; then
+      rm name.tmp
+   fi
+
+   if [ -f cid.tmp ]; then
+      rm cid.tmp
+   fi
+
+   if [ -f not_found.compound ]; then
+      rm not_found.compound
+   fi
+
+   while read -r line; do
+      line_nows="$(echo -e "${line}" | tr -d '[:space:]')"
+      url_encoded=$( rawurlencode "$line_nows")
+      curl -X get https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/smiles/$url_encoded/property/IUPACname/TXT > name.tmp 2>/dev/null
+      curl -X get https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/smiles/$url_encoded/cids/TXT > cid.tmp 2>/dev/null
+      name=$(cat name.tmp)
+      cid=$(cat cid.tmp)
+      if [[ $name == *"PUGREST.NotFound"* ]] || [[ $name == *"PUGREST.BadRequest"* ]]; then
+         echo "Compound: "$line_nows, "CID not found, check your Input."
+         echo $line_nows >> not_found.smiles
+      else
+         echo "Compound: "$line_nows", Name:" $name", CID:"$cid
+         echo $cid >> found.cid
+         echo $name >> found.compound
+         echo $line_nows >> found.smiles
+      fi
+   done < $compound_list
+
+   paste found.compound found.cid found.smiles > found.results 2> error
+   rm found.compound found.cid name.tmp found.smiles 2> error
+
+elif [ $input == "cas" ] || [ $input == "regid" ]; then
+
+   if [ -f name.tmp ]; then
+      rm name.tmp
+   fi
+
+   if [ -f cid.tmp ]; then
+      rm cid.tmp
+   fi
+
+   if [ -f not_found.compound ]; then
+      rm not_found.compound
+   fi
+   echo "------------------------------------------------------------------------------------------------------"
+   echo "                CAS Inputs may lead to Problems while searching th PubChem Database.                  "
+   echo "                     You may consider using the standard input (name) insted!                         "
+   echo "        If an CAS is not found as a Registry ID, it will be searched for as a Registry Number.        "
+   echo "         Note however, that there may be Problems with this approach, like duplicate entrys.          "
+   echo " It is therefore recommendend to first use a list output, and use the resulting CIDs as the new input."
+   echo "------------------------------------------------------------------------------------------------------"
+
+   while read -r line; do
+      line_nows="$(echo -e "${line}" | tr -d '[:space:]')"
+      url_encoded=$( rawurlencode "$line_nows")
+      curl -X get https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/xref/RegistryID/$url_encoded/property/IUPACname/TXT > name.tmp 2>/dev/null
+      curl -X get https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/xref/RegistryID/$url_encoded/cids/TXT > cid.tmp 2>/dev/null
+      name=$(cat name.tmp)
+      cid=$(cat cid.tmp)
+
+      if [[ $name == *"PUGREST.NotFound"* ]]; then
+         echo "CAS Number ",$line_nows," was not found as a Registry ID. Trying to get ",$line_nows," as a Registry Number." 
+      curl -X get https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/xref/RN/$line_nows/property/IUPACname/TXT > name.tmp 2>/dev/null
+      curl -X get https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/xref/RN/$line_nows/cids/TXT > cid.tmp 2>/dev/null
+      name=$(cat name.tmp)
+      cid=$(cat cid.tmp)
+      fi
+      if [[ $name == *"PUGREST.NotFound"* ]]; then
+         echo "Compound: "$line_nows, "CID not found, check your Input."
+         echo $line_nows >> not_found.cas
+         echo ""
+      else
+         echo "Compound: "$line_nows", Name:" $name", CID:"$cid
+         echo ""
+         echo $cid >> found.cid
+         namenows="$(echo -e "$name" | tr -d '[:space:]')"
+         echo $namenows >> found.compound
+         echo $line_nows >> found.cas
+      fi
+   done < $compound_list
+
+   paste found.compound found.cid found.cas > found.results 2> error
+   rm found.compound found.cid name.tmp found.cas 2> error
+else
+   echo "Input Format not known or not supported."
+   exit
+fi
+fi
+
+if [ $output == "sdf" ]; then
+
+   if [ ! -s found.results ]; then
+      echo "No compounds found, can't search for geometries."
+      exit
+   fi
+
+   if [ "$single" = true ]; then
+      while read -r line; do
+         compound=$(echo $line | awk '{print $1}')
+         cid=$(echo $line | awk '{if ($2 != "") print $2; else print $1;}')
+         curl -X get https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/cid/$cid/sdf?record_type=3d > $cid.sdf 2>/dev/null
+         success_string=$(cat $cid.sdf)
+         if [[ $success_string == *"PUGREST.NotFound"* ]]; then
+            echo "No 3D Conformer Data found for "$compound
+            echo "Retrieving 2D Conformer Data instead."
+            curl -X get https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/cid/$cid/sdf > $cid.sdf 2>/dev/null
+            if [ $to3 == "y" ]; then
+               echo "Using xTB for an attempt to convert the 2D structure to 3D."
+               $xtb $cid.sdf --gfn 2 --sp --ceasefiles > xtb_3d.out
+               if grep -q "converted geometry written to" xtb_3d.out; then
+                  echo "3D conversion successfull."
+                  mv gfnff_convert.sdf .$cid.sdf
+                  rm list.tmp convert.log mdrestart xtbmdok xtb.trj
+                  mv .$cid.sdf $cid.sdf
+               fi
+            fi
+         fi
+         echo $compound $cid > pubchem_data
+         echo $compound > iupac
+      done < found.results
+      echo "Done!"
+      exit
+   fi
+
+   if [ ! -d pubchem_compounds ]; then
+      mkdir pubchem_compounds
+   fi
+   pushd pubchem_compounds >/dev/null 2>/dev/null
+
+   while read -r line; do
+      compound=$(echo $line | awk '{print $1}')
+      cid=$(echo $line | awk '{if ($2 != "") print $2; else print $1;}')
+      if [ ! -d $cid ]; then
+         echo $cid
+         mkdir $cid
+         pushd $cid > /dev/null 2>/dev/null
+         curl -X get https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/cid/$cid/sdf?record_type=3d > $cid.sdf 2>/dev/null
+         success_string=$(cat $cid.sdf)
+         if [[ $success_string == *"PUGREST.NotFound"* ]]; then
+            echo "No 3D Conformer Data found for "$compound
+            echo "Retrieving 2D Conformer Data instead."
+            curl -X get https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/cid/$cid/sdf > $cid.sdf 2>/dev/null
+            if [ $to3 == "y" ]; then
+               echo "Using xTB for an attempt to convert the 2D structure to 3D."
+               $xtb $cid.sdf --gfn 2 --sp --ceasefiles > xtb_3d.out
+               if grep -q "converted geometry written to" xtb_3d.out; then
+                  echo "3D conversion successfull."
+                  mv gfnff_convert.sdf .$cid.sdf
+                  rm list.tmp convert.log mdrestart xtbmdok xtb.trj  
+                  mv .$cid.sdf $cid.sdf
+               fi
+            fi
+         fi
+         echo $compound $cid > pubchem_data
+         echo $compound > iupac
+         popd > /dev/null
+      else
+         echo $compound " already exists."
+      fi
+   done < ../found.results
+
+elif [ $output == "logp" ] || [ $output == "logP" ]; then
+
+   echo "Retrieving log P data:"
+
+   while read -r line; do
+      compound=$(echo $line | awk '{print $1}')
+      cid=$(echo $line | awk '{print $2}')
+         
+      curl -X get https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/cid/$cid/property/XlogP/txt > logP.tmp 2>/dev/null
+      logP=$(cat logP.tmp)
+      echo $compound $cid $logP
+      echo $compound $cid $logP >> pubchem_logP.data
+
+   done < found.results
+   rm logP.tmp
+
+elif [ $output="list" ]; then
+   echo "Only List output choosen. No additional data will be created."
+else 
+   echo "Output Format not known."
+   exit
+fi
+
+if [ -e list.tmp ]; then
+   rm list.tmp
+fi
+echo "Done!"
+
