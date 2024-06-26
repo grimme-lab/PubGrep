@@ -1,7 +1,7 @@
 ## PubGrep
 
 <div align="center">
-<img src="./PubGrep.png" alt="Workflow using PubGrep, CREST and CENSO" width="600">
+<img src="./assets/PubGrep.png" alt="Workflow using PubGrep, CREST and CENSO" width="600">
 </div>
 
 This project provides a simple bash script, that uses the [PUG REST](https://pubchem.ncbi.nlm.nih.gov/docs/pug-rest) API provided by the National Library of Medicine to automatically access the [PubChem](https://pubchem.ncbi.nlm.nih.gov/) Database, based on a list of readily available input data, like CAS numbers, compound names or PubChem CIDs. It can be used to automatically get random conformer structure data (``.sdf`` files) from the PubChem database, if it is available.
