@@ -8,6 +8,7 @@ import requests
 
 COMPOUND_DIR_NAME = "pubchem_compounds"
 HLGAP_THR = 0.5
+VERBOSITY = 3
 
 
 def rawurlencode(string):
@@ -48,7 +49,8 @@ def test_pubchem_server():
         "https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/cid/1/cids/TXT", timeout=10
     )
     if response.status_code == 200 and response.text.strip() == "1":
-        print("PubChem Server is working fine.")
+        if VERBOSITY > 1:
+            print("PubChem Server is working fine.")
     else:
         raise ConnectionError(
             "No connection could be established. Check if you have access to the internet."
@@ -56,7 +58,7 @@ def test_pubchem_server():
 
 
 # Function to run the xtb command
-def run_xtb_command(xtb_path: Path, calc_dir: Path, args: list) -> tuple | None:
+def run_xtb_command(xtb_path: Path, calc_dir: Path, args: list) -> tuple:
     """
     This function is used to run the xtb command.
     """
@@ -70,9 +72,7 @@ def run_xtb_command(xtb_path: Path, calc_dir: Path, args: list) -> tuple | None:
         )
         stdout = xtb_out.stdout.decode()
         stderr = xtb_out.stderr.decode()
-
-        return stdout, stderr
-
+        returncode = xtb_out.returncode
     except sp.CalledProcessError as e:
         with open(calc_dir / "xtb.out", "w", encoding="utf-8") as file:
             file.write(e.stdout.decode())
@@ -82,7 +82,11 @@ def run_xtb_command(xtb_path: Path, calc_dir: Path, args: list) -> tuple | None:
                 file=file,
             )
             file.write(e.stderr.decode())
-        raise e
+        stdout = e.stdout.decode()
+        stderr = e.stderr.decode()
+        returncode = e.returncode
+
+    return stdout, stderr, returncode
 
 
 def check_hlgap(output: str) -> bool:
@@ -123,6 +127,143 @@ def search_compound(compound, input_format):
     return response.text.strip()
 
 
+def retrieve_3d_sdf(workingdir: Path, cid: str, xtb_path: Path) -> Path:
+    """
+    This function is used to retrieve the 3D conformer data from the PubChem database.
+    """
+    response = requests.get(
+        f"https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/cid/{cid}/sdf?record_type=3d",
+        timeout=10,
+    )
+    if "PUGREST.NotFound" in response.text:
+        try:
+            twodthreed(workingdir=workingdir, cid=cid, xtb_path=xtb_path)
+        except Exception:
+            if VERBOSITY > 1:
+                print(f"Error in 2D to 3D structure conversion for CID {cid}.")
+            raise Exception
+    else:
+        with open(workingdir / f"{cid}.sdf", "w", encoding="utf-8") as file:
+            file.write(response.text)
+        # still conduct single point calculation to get the charge
+        xtb_out, xtb_err, exitcode = run_xtb_command(
+            xtb_path=xtb_path,
+            calc_dir=workingdir,
+            args=[f"{cid}.sdf", "--gfn", "2", "--sp", "--ceasefiles"],
+        )
+        chrg = get_charge_from_xtb_output(xtb_out=xtb_out)
+        with open(Path(f"{workingdir}/.CHRG"), "w", encoding="UTF-8") as f:
+            f.write(str(chrg) + "\n")
+    # return 3d file path
+    return workingdir / f"{cid}.sdf"
+
+def get_charge_from_xtb_output(xtb_out: str) -> int:
+    """
+    This function is used to extract the total charge from the xtb output.
+    """
+    # load fourth entry of a line with ":: total charge" of xtb.out into a variable
+    chrg = 0
+    for line in xtb_out.split("\n"):
+        if ":: total charge" in line:
+            chrg = round(float(line.split()[3]))
+            break
+    if VERBOSITY > 1:
+        print(" " * 3 + f"Total charge: {chrg:6d}")
+    return chrg
+
+
+def twodthreed(workingdir: Path, cid: str, xtb_path: Path):
+    if VERBOSITY > 1:
+        print(
+            f"No 3D Conformer Data found for CID {cid}. Retrieving 2D Conformer Data instead."
+        )
+    response = requests.get(
+        f"https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/cid/{cid}/sdf",
+        timeout=10,
+    )
+    with open(f"{workingdir}/{cid}_2d.sdf", "w", encoding="utf-8") as file:
+        file.write(response.text)
+
+    # Convert 2D to 3D
+    try:
+        xtb_args = [
+            f"{cid}_2d.sdf",
+            "--gfn",
+            "2",
+            "--sp",
+            "--ceasefiles",
+            "--iterations",
+            "50",
+        ]
+        xtb_out, _, exitcode = run_xtb_command(
+            xtb_path=xtb_path, calc_dir=workingdir, args=xtb_args
+        )
+        if exitcode == 0 and "converted geometry written to" in xtb_out:
+            if VERBOSITY > 1:
+                print("3D conversion successful.")
+            Path(f"{workingdir}/gfnff_convert.sdf").rename(f"{workingdir}/{cid}.sdf")
+        else:
+            raise Exception("3D conversion failed.")
+        if not check_hlgap(xtb_out):
+            raise ValueError("HOMO-LUMO gap too small!")
+        chrg = get_charge_from_xtb_output(xtb_out=xtb_out)
+        with open(Path(f"{workingdir}/gfnff_convert.sdf"), "w", encoding="UTF-8") as f:
+            f.write(str(chrg) + "\n")
+    except Exception as e:
+        if VERBOSITY > 1:
+            print("xtb structure conversion failed. Original error:")
+            print(e)
+        raise Exception
+    finally:
+        files_to_delete = [
+            ".sccnotconverged",
+            "convert.log",
+            "mdrestart",
+            "xtb.trj",
+            "xtbmdok",
+        ]
+        for fdel in files_to_delete:
+            if Path(f"{workingdir}/{fdel}").exists():
+                Path(f"{workingdir}/{fdel}").unlink()
+
+
+def convert_structure(strucfile: Path, suffix: str) -> Path:
+    """
+    Conversion of a structure format into another.
+    """
+    sp.run(
+        [
+            "mctc-convert",
+            strucfile.name,
+            strucfile.with_suffix(suffix).name,
+            "--normalize",
+        ],
+        check=True,
+        stdout=sp.PIPE,
+        stderr=sp.PIPE,
+        cwd=strucfile.parent,
+    )
+    return strucfile.with_suffix(suffix)
+
+
+def opt_structure(xtb_path: Path, strucfile: Path) -> Path:
+    xtb_out, xtb_err, exitcode = run_xtb_command(
+        xtb_path=xtb_path,
+        calc_dir=strucfile.parent,
+        args=[strucfile.name, "--opt", "--gfn", "2", "--ceasefiles"],
+    )
+    # rename the file xtbopt.{suffix} to {strucfile}_opt.{suffix}
+    xtb_opt_file = Path(f"{strucfile.parent}/xtbopt{strucfile.suffix}")
+    strucfile_opt = Path(f"{strucfile.parent}/{strucfile.stem}_opt{strucfile.suffix}")
+    xtb_opt_file.rename(strucfile_opt)
+    files_to_delete = [
+        ".xtboptok",
+    ]
+    for fdel in files_to_delete:
+        if Path(f"{strucfile.parent}/{fdel}").exists():
+            Path(f"{strucfile.parent}/{fdel}").unlink()
+    return strucfile_opt
+
 def main():
     """
     This function is used to search the compounds in the PubChem database.
@@ -159,59 +300,26 @@ def main():
         for cid, compound in found_compounds:
             cid_dir = Path(f"{COMPOUND_DIR_NAME}/{cid}")
             cid_dir.mkdir(parents=True, exist_ok=True)
-            response = requests.get(
-                f"https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/cid/{cid}/sdf?record_type=3d",
-                timeout=10,
-            )
-            if "PUGREST.NotFound" in response.text:
-                print(
-                    f"No 3D Conformer Data found for CID {cid}. Retrieving 2D Conformer Data instead."
-                )
-                response = requests.get(
-                    f"https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/cid/{cid}/sdf",
-                    timeout=10,
-                )
-                with open(f"{cid_dir}/{cid}_2d.sdf", "w", encoding="utf-8") as file:
-                    file.write(response.text)
-
-                # Convert 2D to 3D
-                try:
-                    xtb_args = [
-                        f"{cid}_2d.sdf",
-                        "--gfn",
-                        "2",
-                        "--sp",
-                        "--ceasefiles",
-                    ]
-                    xtb_out, xtb_err = run_xtb_command(
-                        xtb_path=xtb_path, calc_dir=cid_dir, args=xtb_args
-                    )
-                    if "converted geometry written to" in xtb_out:
-                        print("3D conversion successful.")
-                        Path(f"{cid_dir}/gfnff_convert.sdf").rename(
-                            f"{cid_dir}/{cid}.sdf"
-                        )
-                    else:
-                        raise Exception("3D conversion failed.")
-                    if not check_hlgap(xtb_out):
-                        raise ValueError("HOMO-LUMO gap too small!")
-                except Exception as e:
-                    print("xtb structure conversion failed. Error code:")
+            try:
+                if VERBOSITY > 2:
+                    print(f"Retrieving 3D structure for {compound}.")
+                struc = retrieve_3d_sdf(workingdir=cid_dir, cid=cid, xtb_path=xtb_path)
+            except Exception as e:
+                print(f"Error in retrieving 3D structure for {compound}.")
+                print(e)
+                not_found_compounds.append(compound)
+                continue
+            struc = convert_structure(struc, ".xyz")
+            try:
+                if VERBOSITY > 2:
+                    print(f"Optimizing structure for {compound}.")
+                struc_opt = opt_structure(xtb_path, struc)
+            except Exception as e:
+                if VERBOSITY > 1:
+                    print(f"Error in optimizing structure for {compound}.")
                     print(e)
-
-                files_to_delete = [
-                    ".sccnotconverged",
-                    "convert.log",
-                    "mdrestart",
-                    "xtb.trj",
-                    "xtbmdok",
-                ]
-                for file in files_to_delete:
-                    if Path(f"{cid_dir}/{file}").exists():
-                        Path(f"{cid_dir}/{file}").unlink()
-            else:
-                with open(f"{cid_dir}/{cid}.sdf", "w", encoding="utf-8") as file:
-                    file.write(response.text)
+                not_found_compounds.append(compound)
+                continue
     elif output_format in ["logp", "logP"]:
         with open("pubchem_logP.data", "w", encoding="utf-8") as file:
             for compound, cid in found_compounds:
