@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pubgrep"
+dynamic = ["version"]
+description = "A tool for retrieving 3D conformers in the PubChem database."
+authors = [
+    { name = "Marcel Stahn", email = "stahn@thch.uni-bonn.de" },
+    { name = "Marcel Müller", email = "marcel.mueller@thch.uni-bonn.de" },
+]
+maintainers = [
+    { name = "Marcel Müller", email = "marcel.mueller@thch.uni-bonn.de" },
+]
+readme = "README.md"
+license = { file = "LICENSE" }
+keywords = ["chemistry", "pubchem", "compound search"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+dependencies = ["requests", "xtb", "types-requests"]
+requires-python = ">=3.12"
+
+[project.scripts]
+pubgrep = "pubgrep:cli"

@@ -33,6 +33,27 @@ def test_pubchem_server(verbosity):
         )
 
 
+def search_compound(compound, input_format):
+    """
+    This function is used to search the compound in the PubChem database.
+    """
+    base_url = "https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/"
+    search_url = ""
+    if input_format == "inchi":
+        search_url = f"{base_url}inchi/{rawurlencode(compound)}/cids/TXT"
+    elif input_format == "name":
+        search_url = f"{base_url}name/{rawurlencode(compound)}/cids/TXT"
+    elif input_format == "cid":
+        search_url = f"{base_url}cid/{compound}/property/IUPACname/TXT"
+    elif input_format in ["smile", "smiles"]:
+        search_url = f"{base_url}smiles/{rawurlencode(compound)}/cids/TXT"
+    elif input_format in ["cas", "regid"]:
+        search_url = f"{base_url}xref/RegistryID/{rawurlencode(compound)}/cids/TXT"
+
+    response = requests.get(search_url, timeout=10)
+    return response.text.strip()
+
+
 ### Class that combines the compound specific data
 
 
@@ -79,7 +100,7 @@ class Compound:
                 file.write(response.text)
 
         if not self.hlgap or not self.chrg:
-            xtb_out, _, _ = run_xtb_command(
+            xtb_out, _, _ = run_xtb(
                 xtb_path=self.xtb_path,
                 calc_dir=self.wdir,
                 args=[f"{self.cid}.sdf", "--gfn", "2", "--sp", "--ceasefiles"],
@@ -120,7 +141,7 @@ class Compound:
                 "--iterations",
                 "50",
             ]
-            xtb_out, _, exitcode = run_xtb_command(
+            xtb_out, _, exitcode = run_xtb(
                 xtb_path=self.xtb_path, calc_dir=self.wdir, args=xtb_args
             )
             if exitcode == 0 and "converted geometry written to" in xtb_out:
@@ -178,7 +199,7 @@ class Compound:
         """
         This function is used to optimize the structure of the compound.
         """
-        _, _, _ = run_xtb_command(
+        _, _, _ = run_xtb(
             xtb_path=self.xtb_path,
             calc_dir=self.wdir,
             args=[self.struc.name, "--opt", "--gfn", "2", "--ceasefiles"],
@@ -195,8 +216,10 @@ class Compound:
         self.struc = strucfile_opt
 
 
-# Function to run the xtb command
-def run_xtb_command(xtb_path: Path, calc_dir: Path, args: list) -> tuple:
+### Technical functions for running and parsing xtb
+
+
+def run_xtb(xtb_path: Path, calc_dir: Path, args: list) -> tuple:
     """
     This function is used to run the xtb command.
     """
@@ -255,27 +278,6 @@ def get_charge_from_xtb_output(xtb_out: str, verbosity: int) -> int:
     return chrg
 
 
-def search_compound(compound, input_format):
-    """
-    This function is used to search the compound in the PubChem database.
-    """
-    base_url = "https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/"
-    search_url = ""
-    if input_format == "inchi":
-        search_url = f"{base_url}inchi/{rawurlencode(compound)}/cids/TXT"
-    elif input_format == "name":
-        search_url = f"{base_url}name/{rawurlencode(compound)}/cids/TXT"
-    elif input_format == "cid":
-        search_url = f"{base_url}cid/{compound}/property/IUPACname/TXT"
-    elif input_format in ["smile", "smiles"]:
-        search_url = f"{base_url}smiles/{rawurlencode(compound)}/cids/TXT"
-    elif input_format in ["cas", "regid"]:
-        search_url = f"{base_url}xref/RegistryID/{rawurlencode(compound)}/cids/TXT"
-
-    response = requests.get(search_url, timeout=10)
-    return response.text.strip()
-
-
 ### Argument parsing functions
 
 
@@ -329,6 +331,13 @@ def get_args() -> argparse.Namespace:
         help="Base directory for the compound data",
         required=False,
     )
+    parser.add_argument(
+        "--hlgap_thr",
+        type=float,
+        default=0.5,
+        help="Threshold for the HOMO-LUMO gap",
+        required=False,
+    )
     return parser.parse_args()
 
 
@@ -344,6 +353,7 @@ def cli():
     optimization = args.opt
     skip = args.skip
     basedir = args.basedir
+    hlgap_thr = args.hlgap_thr
 
     xtb_path = Path(shutil.which("xtb")).resolve()
 
@@ -354,6 +364,7 @@ def cli():
         input_format=input_format,
         output_format=output_format,
         optimization=optimization,
+        hlgap_thr=hlgap_thr,
         skip=skip,
         verbosity=verbosity,
     )
@@ -366,6 +377,7 @@ def pubgrep(
     input_format: str,
     output_format: str,
     optimization: bool,
+    hlgap_thr: float,
     skip: bool,
     verbosity: int,
 ):
@@ -395,6 +407,7 @@ def pubgrep(
 
     found_compounds: list[Compound] = []
     not_found_compounds: list[str] = []
+    Compound.HLGAP_THR = hlgap_thr
 
     for compound in compound_list:
         result = search_compound(compound, input_format)
@@ -404,7 +417,7 @@ def pubgrep(
             comp = Compound(
                 name=result,
                 cid=compound,
-                wdir= Path(basedir / f"{compound}"),
+                wdir=Path(basedir / f"{compound}"),
                 xtb_path=xtb_path,
                 verbosity=verbosity,
             )
