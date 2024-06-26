@@ -48,6 +48,8 @@ def search_compound(compound, input_format):
     base_url = "https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/"
     search_url = ""
     if input_format == "inchi":
+        # Prepare the data payload
+        data = {"inchi": compound}
         search_url = f"{base_url}inchi/{rawurlencode(compound)}/cids/TXT"
     elif input_format == "name":
         search_url = f"{base_url}name/{rawurlencode(compound)}/cids/TXT"
@@ -58,7 +60,10 @@ def search_compound(compound, input_format):
     elif input_format in ["cas", "regid"]:
         search_url = f"{base_url}xref/RegistryID/{rawurlencode(compound)}/cids/TXT"
 
-    response = requests.get(search_url, timeout=10)
+    if input_format != "inchi":
+        response = requests.get(search_url, timeout=10)
+    else:
+        response = requests.post(search_url, data=data, timeout=10)
     return response.text.strip()
 
 
@@ -394,6 +399,11 @@ def pubgrep(
     if not skip:
         test_pubchem_server(verbosity)
 
+    # if len of compounds is 1, take it as a single compound
+    if isinstance(compounds, list):
+        if len(compounds) == 1:
+            compounds = compounds[0]
+
     compound_list = []
     if isinstance(compounds, list):
         for compound in compounds:
@@ -414,13 +424,21 @@ def pubgrep(
 
     for compound in compound_list:
         result = search_compound(compound, input_format)
+        if input_format != "cid":
+            cid = result
+            name = compound
+        else:
+            cid = compound
+            name = result
+        if verbosity > 2:
+            print(f"Found CID {cid} for {name}.")
         if "PUGREST.NotFound" in result or "PUGREST.BadRequest" in result:
             not_found_compounds.append(compound)
         else:
             comp = Compound(
-                name=result,
-                cid=compound,
-                wdir=Path(basedir / f"{compound}"),
+                name=name,
+                cid=cid,
+                wdir=Path(basedir / f"{cid}"),
                 xtb_path=xtb_path,
                 verbosity=verbosity,
             )
