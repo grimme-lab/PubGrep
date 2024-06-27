@@ -36,6 +36,11 @@ def header() -> str:
     return headerstr
 
 
+# Custom Exceptions for xTB and structure conversions
+class XtbFailure(Exception):
+    "Raised when the xTB calculation does not provide the expected output."
+
+
 ### URL request functions
 def rawurlencode(string):
     """
@@ -121,27 +126,31 @@ class Compound:
         if "PUGREST.NotFound" in response.text:
             try:
                 self.twodthreed()
-            except Exception as exc:
+            except XtbFailure as e:
                 if self.verbosity > 1:
                     print(f"Error in 2D to 3D structure conversion for CID {self.cid}.")
-                raise Exception from exc
+                raise XtbFailure from e
         else:
             with open(self.wdir / f"{self.cid}.sdf", "w", encoding="utf-8") as file:
                 file.write(response.text)
 
-        if not self.hlgap or not self.chrg:
+        if self.hlgap is None or self.chrg is None:
             xtb_out, _, _ = run_xtb(
                 xtb_path=self.xtb_path,
                 calc_dir=self.wdir,
                 args=[f"{self.cid}.sdf", "--gfn", "2", "--sp", "--ceasefiles"],
             )
-            self.hlgap = get_hlgap_from_xtb_output(xtb_out)
-            self.chrg = get_charge_from_xtb_output(xtb_out, self.verbosity)
+            if self.hlgap is None:
+                self.hlgap = get_hlgap_from_xtb_output(xtb_out, self.verbosity)
+            if self.chrg is None:
+                self.chrg = get_charge_from_xtb_output(xtb_out, self.verbosity)
             with open(Path(f"{self.wdir}/.CHRG"), "w", encoding="UTF-8") as f:
                 f.write(str(self.chrg) + "\n")
 
         if self.hlgap < self.HLGAP_THR:
-            raise ValueError("HOMO-LUMO gap too small!")
+            raise ValueError(
+                f"HOMO-LUMO gap too small ({self.hlgap} (is) vs. {self.HLGAP_THR} (threshold) eV)"
+            )
 
         self.struc = self.wdir / f"{self.cid}.sdf"
 
@@ -151,7 +160,7 @@ class Compound:
         """
         if self.verbosity > 1:
             print(
-                f"No 3D Conformer Data found for CID {self.cid}."
+                f"No 3D Conformer Data found for CID {self.cid}. "
                 + "Retrieving 2D Conformer Data instead."
             )
         response = requests.get(
@@ -169,8 +178,6 @@ class Compound:
                 "2",
                 "--sp",
                 "--ceasefiles",
-                "--iterations",
-                "50",
             ]
             xtb_out, _, exitcode = run_xtb(
                 xtb_path=self.xtb_path, calc_dir=self.wdir, args=xtb_args
@@ -182,8 +189,8 @@ class Compound:
                     f"{self.wdir}/{self.cid}.sdf"
                 )
             else:
-                raise Exception("3D conversion failed.")
-            self.hlgap = get_hlgap_from_xtb_output(xtb_out)
+                raise XtbFailure("xTB structure conversion failed.")
+            self.hlgap = get_hlgap_from_xtb_output(xtb_out, self.verbosity)
             self.chrg = get_charge_from_xtb_output(
                 xtb_out=xtb_out, verbosity=self.verbosity
             )
@@ -191,10 +198,8 @@ class Compound:
                 Path(f"{self.wdir}/gfnff_convert.sdf"), "w", encoding="UTF-8"
             ) as f:
                 f.write(str(self.chrg) + "\n")
-        except Exception as e:
-            if self.verbosity > 1:
-                print(f"xtb structure conversion failed. Original error:\n{e}")
-            raise Exception from e
+        except XtbFailure as e:
+            raise XtbFailure from e
         finally:
             files_to_delete = [
                 ".sccnotconverged",
@@ -230,13 +235,15 @@ class Compound:
         """
         This function is used to optimize the structure of the compound.
         """
-        _, _, _ = run_xtb(
+        _, _, returncode = run_xtb(
             xtb_path=self.xtb_path,
             calc_dir=self.wdir,
             args=[self.struc.name, "--opt", "--gfn", "2", "--ceasefiles"],
         )
         xtb_opt_file = Path(f"{self.wdir}/xtbopt{self.struc.suffix}")
         strucfile_opt = Path(f"{self.wdir}/{self.struc.stem}_opt{self.struc.suffix}")
+        if returncode != 0 or not xtb_opt_file.exists():
+            raise XtbFailure("xTB optimization failed.")
         xtb_opt_file.rename(strucfile_opt)
         files_to_delete = [
             ".xtboptok",
@@ -279,7 +286,7 @@ def run_xtb(xtb_path: Path, calc_dir: Path, args: list) -> tuple:
     return stdout, stderr, returncode
 
 
-def get_hlgap_from_xtb_output(output: str) -> float:
+def get_hlgap_from_xtb_output(output: str, verbosity: int) -> float:
     """
     This function is used to check if the HOMO-LUMO gap of an xtb output is large enough.
     """
@@ -287,8 +294,11 @@ def get_hlgap_from_xtb_output(output: str) -> float:
     for line in output.split("\n"):
         if "HOMO-LUMO GAP" in line:
             hlgap = float(line.split()[3])
-    if not hlgap:
+            break
+    if hlgap is None:
         raise ValueError("HOMO-LUMO gap not determined.")
+    if verbosity > 1:
+        print(" " * 3 + f"HOMO-LUMO gap: {hlgap:5f}")
     return hlgap
 
 
@@ -297,11 +307,13 @@ def get_charge_from_xtb_output(xtb_out: str, verbosity: int) -> int:
     This function is used to extract the total charge from the xtb output.
     """
     # load fourth entry of a line with ":: total charge" of xtb.out into a variable
-    chrg = 0
+    chrg = None
     for line in xtb_out.split("\n"):
         if ":: total charge" in line:
             chrg = round(float(line.split()[3]))
             break
+    if chrg is None:
+        raise ValueError("Total charge could not be determined.")
     if verbosity > 1:
         print(" " * 3 + f"Total charge: {chrg:6d}")
     return chrg
@@ -481,11 +493,11 @@ def pubgrep(
             comp.wdir.mkdir(parents=True, exist_ok=True)
             try:
                 if verbosity > 2:
-                    print(f"Retrieving 3D structure for {comp}.")
+                    print(f"Retrieving 3D structure for {comp.cid}.")
                 comp.retrieve_3d_sdf()
-            except Exception as e:
+            except (XtbFailure, ValueError) as e:
                 if verbosity > 1:
-                    print(f"Error in retrieving 3D structure for {comp}.\n{e}")
+                    print(f"Error in retrieving 3D structure for {comp.cid}. {e}")
                 failed_compounds.append(comp)
                 continue
             comp.convert_structure(".xyz")
@@ -494,9 +506,9 @@ def pubgrep(
                     if verbosity > 2:
                         print(f"Optimizing structure for {comp}.")
                     comp.opt_structure()
-                except Exception as e:
+                except XtbFailure as e:
                     if verbosity > 1:
-                        print(f"Error in optimizing structure for {comp}.\n{e}")
+                        print(f"Error in optimizing structure for {comp}. {e}")
                     failed_compounds.append(comp)
                     continue
             successful_compounds.append(comp)
@@ -505,6 +517,8 @@ def pubgrep(
             with open("compounds.csv", "w", encoding="utf-8") as file:
                 for comp in successful_compounds:
                     print(comp, file=file)
+        else:
+            raise ValueError("No compounds could be processed.")
     elif output_format in ["logp", "logP"]:
         raise NotImplementedError("LogP calculation is not implemented yet.")
         # with open("pubchem_logP.data", "w", encoding="utf-8") as file:
