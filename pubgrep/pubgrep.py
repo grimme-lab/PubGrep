@@ -242,17 +242,24 @@ class Compound:
             calc_dir=self.wdir,
             args=[self.struc.name, "--opt", "--gfn", "2", "--ceasefiles"],
         )
-        xtb_opt_file = Path(f"{self.wdir}/xtbopt{self.struc.suffix}")
-        strucfile_opt = Path(f"{self.wdir}/{self.struc.stem}_opt{self.struc.suffix}")
-        if returncode != 0 or not xtb_opt_file.exists():
-            raise XtbFailure("xTB optimization failed.")
-        xtb_opt_file.rename(strucfile_opt)
+
+        # delete unnecessary files
         files_to_delete = [
             ".xtboptok",
         ]
         for fdel in files_to_delete:
             if Path(f"{self.wdir}/{fdel}").exists():
                 Path(f"{self.wdir}/{fdel}").unlink()
+        # define old and new file names
+        xtb_opt_file = Path(f"{self.wdir}/xtbopt{self.struc.suffix}")
+        strucfile_opt = Path(f"{self.wdir}/{self.struc.stem}_opt{self.struc.suffix}")
+
+        # check if the optimization was successful
+        if returncode != 0 or not xtb_opt_file.exists():
+            raise XtbFailure("xTB optimization failed.")
+
+        # rename the optimized structure
+        xtb_opt_file.rename(strucfile_opt)
         self.struc = strucfile_opt
 
 
@@ -411,10 +418,10 @@ def cli():
             skip=skip,
             verbosity=verbosity,
         )
-        sys.exit(0)
-    except Exception as e:
+        return 0
+    except (ValueError, XtbFailure) as e:
         print(f"Error: {e}", file=sys.stderr)
-        sys.exit(1)
+        return 1
 
 
 def pubgrep(
