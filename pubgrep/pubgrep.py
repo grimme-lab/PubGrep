@@ -3,6 +3,7 @@ This module contains code for interacting with the power user interface of the P
 and different related functions.
 """
 
+import sys
 from urllib.parse import quote
 import argparse
 from pathlib import Path
@@ -372,29 +373,34 @@ def cli():
     """
     This function is used to parse the command line arguments.
     """
-    args = get_args()
-    verbosity = args.verbosity
-    compounds = args.compounds
-    input_format = args.input
-    output_format = args.output
-    optimization = args.opt
-    skip = args.skip
-    basedir = args.basedir
-    hlgap_thr = args.hlgap_thr
+    try:
+        args = get_args()
+        verbosity = args.verbosity
+        compounds = args.compounds
+        input_format = args.input
+        output_format = args.output
+        optimization = args.opt
+        skip = args.skip
+        basedir = args.basedir
+        hlgap_thr = args.hlgap_thr
 
-    xtb_path = Path(shutil.which("xtb")).resolve()
+        xtb_path = Path(shutil.which("xtb")).resolve()
 
-    pubgrep(
-        xtb_path=xtb_path,
-        basedir=basedir,
-        compounds=compounds,
-        input_format=input_format,
-        output_format=output_format,
-        optimization=optimization,
-        hlgap_thr=hlgap_thr,
-        skip=skip,
-        verbosity=verbosity,
-    )
+        pubgrep(
+            xtb_path=xtb_path,
+            basedir=basedir,
+            compounds=compounds,
+            input_format=input_format,
+            output_format=output_format,
+            optimization=optimization,
+            hlgap_thr=hlgap_thr,
+            skip=skip,
+            verbosity=verbosity,
+        )
+        sys.exit(0)
+    except Exception as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
 
 
 def pubgrep(
