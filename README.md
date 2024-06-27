@@ -38,6 +38,8 @@ pubgrep --help
 
 # Usage
 
+## Bash
+
 The default mode (name based input, structure output) is used by first creating a list with structure information (e.g. CAS numbers). The list can have a simple text (``list.txt``) format and could look like this:
 
 ```
@@ -89,13 +91,18 @@ Structure files are created in ``pubchem_compounds`` in their respective directo
 PubGrep --help
 ```
 
-# Single Structure mode.
+### Single Structure mode.
 
 You can also use PubGrep to obtain a single structure quickly from the PubChem Database by adding an identifier directly to the call instead of using the list-based input.
 
 ```
 PubGrep caffeine 
 ```
+
+## Python
+
+TBD.
+
 
 # 2D to 3D conversion (experimental)
 
