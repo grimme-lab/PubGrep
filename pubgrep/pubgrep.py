@@ -126,12 +126,7 @@ class Compound:
             timeout=10,
         )
         if "PUGREST.NotFound" in response.text:
-            try:
-                self.twodthreed()
-            except XtbFailure as e:
-                if self.verbosity > 1:
-                    print(f"Error in 2D to 3D structure conversion for CID {self.cid}.")
-                raise XtbFailure from e
+            self.twodthreed()
         else:
             with open(self.wdir / f"{self.cid}.sdf", "w", encoding="utf-8") as file:
                 file.write(response.text)
@@ -191,7 +186,7 @@ class Compound:
                     f"{self.wdir}/{self.cid}.sdf"
                 )
             else:
-                raise XtbFailure("xTB structure conversion failed.")
+                raise XtbFailure(f"Error in 2D to 3D structure conversion for CID {self.cid}.")
             self.hlgap = get_hlgap_from_xtb_output(xtb_out, self.verbosity)
             self.chrg = get_charge_from_xtb_output(
                 xtb_out=xtb_out, verbosity=self.verbosity
