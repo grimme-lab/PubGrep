@@ -450,6 +450,8 @@ def pubgrep(
             compound_list = [line.strip() for line in file.readlines()]
     elif isinstance(compounds, str):
         compound_list.append(compounds)
+    else:
+        raise ValueError("Invalid input for compounds.")
 
     if len(compound_list) == 0:
         raise ValueError("No compounds found in the input file.")
