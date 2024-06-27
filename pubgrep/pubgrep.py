@@ -433,7 +433,7 @@ def pubgrep(
     elif isinstance(compounds, str):
         compound_list.append(compounds)
 
-    if compound_list == []:
+    if len(compound_list) == 0:
         raise ValueError("No compounds found in the input file.")
 
     found_compounds: list[Compound] = []
