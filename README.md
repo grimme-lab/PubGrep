@@ -1,21 +1,39 @@
 ## PubGrep
 
 <div align="center">
-<img src="./PubGrep.png" alt="Workflow using PubGrep, CREST and CENSO" width="600">
+<img src="./assets/PubGrep.png" alt="Workflow using PubGrep, CREST and CENSO" width="600">
 </div>
 
-This project provides a simple bash script, that uses the [PUG REST](https://pubchem.ncbi.nlm.nih.gov/docs/pug-rest) API provided by the National Library of Medicine to automatically access the [PubChem](https://pubchem.ncbi.nlm.nih.gov/) Database, based on a list of readily available input data, like CAS numbers, compound names or PubChem CIDs. It can be used to automatically get random conformer structure data (``.sdf`` files) from the PubChem database, if it is available. 
+This project provides a simple bash script, that uses the [PUG REST](https://pubchem.ncbi.nlm.nih.gov/docs/pug-rest) API provided by the National Library of Medicine to automatically access the [PubChem](https://pubchem.ncbi.nlm.nih.gov/) Database, based on a list of readily available input data, like CAS numbers, compound names or PubChem CIDs. It can be used to automatically get random conformer structure data (``.sdf`` files) from the PubChem database, if it is available.
+The Python implementation additionally enables `xTB`-based optimization of the 3D structures and conversion into other structure formats.
 
-Since the structures obtained with this program are not necessarily the lowest-lying conformers, it is recommended to use conformer screening with [CREST](https://github.com/crest-lab) and [CENSO](https://github.com/grimme-lab/CENSO) afterward.
+Since the structures obtained with this program are not necessarily the lowest-lying conformers, it is recommended to use conformer screening with [CREST](https://github.com/crest-lab) and [CENSO](https://github.com/grimme-lab/CENSO) afterwards.
 
 If you are using this script extensively for your research, please consider citing the [publication](https://doi.org/10.1039/D3RA01705B).
 
+__WARNING: There's a more recent `Python` and a classical `Bash` implementation of `PubGrep`. While they were developed in the same spirit, the inputs and outputs might not necessarily be exactly similar.__
+
 # Installation
+
+## Bash
 
 If you are using linux, you can just download the repository, add ``PubGrep`` to your path and make it executable by using
 
 ```
 chmod +x PubGrep
+```
+
+## Python
+
+`pubgrep` can be installed into the currently active environment via:
+
+```
+pip install -e .
+```
+
+All information about how to use the Python variant of ``PubGrep`` are accessible via 
+```
+pubgrep --help
 ```
 
 # Usage
