@@ -83,6 +83,8 @@ def search_compound(compound, input_format):
         search_url = f"{base_url}smiles/{rawurlencode(compound)}/cids/TXT"
     elif input_format in ["cas", "regid"]:
         search_url = f"{base_url}xref/RegistryID/{rawurlencode(compound)}/cids/TXT"
+    else:
+        raise ValueError("Invalid input format.")
 
     if input_format != "inchi":
         response = requests.get(search_url, timeout=10)
