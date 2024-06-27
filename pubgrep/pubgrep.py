@@ -200,8 +200,6 @@ class Compound:
                 Path(f"{self.wdir}/gfnff_convert.sdf"), "w", encoding="UTF-8"
             ) as f:
                 f.write(str(self.chrg) + "\n")
-        except XtbFailure as e:
-            raise XtbFailure from e
         finally:
             files_to_delete = [
                 ".sccnotconverged",
@@ -532,10 +530,11 @@ def pubgrep(
             raise ValueError("No compounds could be processed.")
     elif output_format in ["logp", "logP"]:
         raise NotImplementedError("LogP calculation is not implemented yet.")
+        # TODO:
         # with open("pubchem_logP.data", "w", encoding="utf-8") as file:
         #     for compound, cid in found_compounds:
         #         response = requests.get(
-        #             f"https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/cid/{cid}/property/XlogP/txt",
+        #             f"https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/cid/{cid}/property/XlogP/txt", # pylint: disable=line-too-long
         #             timeout=10,
         #         )
         #         logp = response.text.strip()
