@@ -113,9 +113,34 @@ class Compound:
         self.struc: Path | None = None
         self.chrg: int | None = None
         self.hlgap: float | None = None
+        self.logp: float | None = None
 
     def __str__(self):
-        return f"{self.cid}\t{self.name}{"\t"+str(self.struc.resolve()) if self.struc else ''}"
+        comp_string = f"{self.cid}" + f"\t{self.name}"
+        if self.struc:
+            comp_string += f"\t{self.struc.resolve()}"
+        if self.logp is not None:
+            comp_string += f"\t{self.logp}"
+        if self.chrg is not None:
+            comp_string += f"\t{self.chrg}"
+        if self.hlgap is not None:
+            comp_string += f"\t{self.hlgap}"
+
+        return comp_string
+
+    def retrieve_logp(self):
+        """
+        This function is used to retrieve the LogP value from the PubChem database.
+        """
+        response = requests.get(
+            f"https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/cid/{self.cid}/property/XlogP/txt",  # pylint: disable=line-too-long
+            timeout=10,
+        )
+        logp = response.text.strip()
+        if "PUGREST.BadRequest" in logp or logp == "":
+            raise ValueError(f"LogP not found for {self.cid}.")
+        float(logp)
+        self.logp = logp
 
     def retrieve_3d_sdf(self):
         """
@@ -186,7 +211,9 @@ class Compound:
                     f"{self.wdir}/{self.cid}.sdf"
                 )
             else:
-                raise XtbFailure(f"Error in 2D to 3D structure conversion for CID {self.cid}.")
+                raise XtbFailure(
+                    f"Error in 2D to 3D structure conversion for CID {self.cid}."
+                )
             self.hlgap = get_hlgap_from_xtb_output(xtb_out, self.verbosity)
             self.chrg = get_charge_from_xtb_output(
                 xtb_out=xtb_out, verbosity=self.verbosity
@@ -432,9 +459,6 @@ def pubgrep(
     This function is used to search the compounds in the PubChem database.
     """
 
-    if output_format not in ["sdf", "logP", "list"]:
-        raise ValueError("Invalid output format.")
-
     if not skip:
         test_pubchem_server(verbosity)
 
@@ -486,13 +510,14 @@ def pubgrep(
             if verbosity > 0:
                 print(comp)
 
+    failed_compounds = []
+    successful_compounds = []
+
     if output_format == "list":
         with open("found_compounds.csv", "w", encoding="utf-8") as file:
             for comp in found_compounds:
                 print(comp, file=file)
     elif output_format == "sdf":
-        failed_compounds = []
-        successful_compounds = []
         for comp in found_compounds:
             comp.wdir.mkdir(parents=True, exist_ok=True)
             try:
@@ -508,32 +533,35 @@ def pubgrep(
             if optimization:
                 try:
                     if verbosity > 2:
-                        print(f"Optimizing structure for {comp}.")
+                        print(f"Optimizing structure for {comp.cid}.")
                     comp.opt_structure()
                 except XtbFailure as e:
                     if verbosity > 1:
-                        print(f"Error in optimizing structure for {comp}. {e}")
+                        print(f"Error in optimizing structure for {comp.cid}. {e}")
                     failed_compounds.append(comp)
                     continue
             successful_compounds.append(comp)
-
-        if successful_compounds:
-            with open("compounds.csv", "w", encoding="utf-8") as file:
-                for comp in successful_compounds:
-                    print(comp, file=file)
-        else:
-            raise ValueError("No compounds could be processed.")
     elif output_format in ["logp", "logP"]:
-        raise NotImplementedError("LogP calculation is not implemented yet.")
-        # TODO:
-        # with open("pubchem_logP.data", "w", encoding="utf-8") as file:
-        #     for compound, cid in found_compounds:
-        #         response = requests.get(
-        #             f"https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/cid/{cid}/property/XlogP/txt", # pylint: disable=line-too-long
-        #             timeout=10,
-        #         )
-        #         logp = response.text.strip()
-        #         file.write(f"{compound} {cid} {logp}\n")
+        for comp in found_compounds:
+            try:
+                if verbosity > 2:
+                    print(f"Retrieving LogP for {comp.cid}.")
+                comp.retrieve_logp()
+            except ValueError as e:
+                if verbosity > 1:
+                    print(f"Error in retrieving LogP for {comp.cid}. {e}")
+                failed_compounds.append(comp)
+                continue
+            successful_compounds.append(comp)
+    else:
+        raise ValueError("Invalid output format.")
+
+    if successful_compounds:
+        with open("compounds.csv", "w", encoding="utf-8") as file:
+            for comp in successful_compounds:
+                print(comp, file=file)
+    else:
+        raise ValueError("No compounds could be processed.")
 
     if not_found_compounds:
         with open("not_found.compound", "w", encoding="utf-8") as file:
