@@ -9,7 +9,12 @@ import argparse
 from pathlib import Path
 import subprocess as sp
 import shutil
+import multiprocessing as mp
+from functools import partial
+import random
+import time
 
+from tqdm import tqdm
 import requests
 
 try:
@@ -57,7 +62,7 @@ def test_pubchem_server(verbosity):
         "https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/cid/1/cids/TXT", timeout=10
     )
     if response.status_code == 200 and response.text.strip() == "1":
-        if verbosity > 1:
+        if verbosity > 3:
             print("PubChem Server is working fine.")
     else:
         raise ConnectionError(
@@ -115,6 +120,9 @@ class Compound:
         self.hlgap: float | None = None
         self.logp: float | None = None
         self.numatoms: int | None = None
+
+        # > Create the directory for the compound
+        self.wdir.mkdir(parents=True, exist_ok=True)
 
     def __str__(self):
         comp_string = f"{self.cid}" + f"\t{self.name}"
@@ -217,7 +225,7 @@ class Compound:
         """
         This function is used to convert the 2D structure to 3D structure.
         """
-        if self.verbosity > 1:
+        if self.verbosity > 2:
             print(
                 f"No 3D Conformer Data found for CID {self.cid}. "
                 + "Retrieving 2D Conformer Data instead."
@@ -319,11 +327,49 @@ class Compound:
         self.struc = strucfile_opt
 
 
+def process_compound(comp: Compound, optimization: bool = False, verbosity: int = 0) -> tuple:
+    # > Wait a random time to avoid overloading the server
+    time.sleep(random.uniform(0.0, 2.5))
+
+    # > Retrieve the 3D structure
+    try:
+        if verbosity > 3:
+            print(f"Retrieving 3D structure for {comp.cid}.")
+        comp.retrieve_3d_sdf()
+    except (XtbFailure, ValueError) as e:
+        if verbosity > 1:
+            print(f"Error in retrieving 3D structure for {comp.cid}. {e}")
+        return None, comp
+
+    # > Convert the structure to the desired format
+    comp.convert_structure(".xyz")
+
+    # > Get the number of atoms
+    with open(comp.struc, "r", encoding="utf-8") as file:  # type: ignore
+        xyz = file.read()
+    comp.numatoms = get_numatoms_from_xyz(xyz, verbosity)
+
+    # > Optimize the structure
+    if optimization:
+        try:
+            if verbosity > 3:
+                print(f"Optimizing structure for {comp.cid}.")
+            comp.opt_structure()
+        except XtbFailure as e:
+            if verbosity > 1:
+                print(f"Error in optimizing structure for {comp.cid}. {e}")
+            return None, comp
+
+    return comp, None
+
+
 ### Technical functions for running and parsing xtb
 def run_xtb(xtb_path: Path, calc_dir: Path, args: list) -> tuple:
     """
     This function is used to run the xtb command.
     """
+    singlecore = ["-P", "1"]
+    args = singlecore + args
     try:
         xtb_out = sp.run(
             [xtb_path, *args],
@@ -333,7 +379,11 @@ def run_xtb(xtb_path: Path, calc_dir: Path, args: list) -> tuple:
             cwd=calc_dir,
         )
         stdout = xtb_out.stdout.decode()
+        with open(calc_dir / "xtb.out", "w", encoding="utf-8") as file:
+            file.write(stdout)
         stderr = xtb_out.stderr.decode()
+        with open(calc_dir / "xtb.err", "w", encoding="utf-8") as file:
+            file.write(stderr)
         returncode = xtb_out.returncode
     except sp.CalledProcessError as e:
         with open(calc_dir / "xtb.out", "w", encoding="utf-8") as file:
@@ -362,7 +412,7 @@ def get_hlgap_from_xtb_output(output: str, verbosity: int) -> float:
             break
     if hlgap is None:
         raise ValueError("HOMO-LUMO gap not determined.")
-    if verbosity > 2:
+    if verbosity > 3:
         print(" " * 3 + f"HOMO-LUMO gap: {hlgap:5f}")
     return hlgap
 
@@ -379,7 +429,7 @@ def get_charge_from_xtb_output(xtb_out: str, verbosity: int) -> int:
             break
     if chrg is None:
         raise ValueError("Total charge could not be determined.")
-    if verbosity > 2:
+    if verbosity > 3:
         print(" " * 3 + f"Total charge: {chrg:6d}")
     return chrg
 
@@ -391,7 +441,7 @@ def get_numatoms_from_xyz(xyz: str, verbosity: int) -> int:
     nat = None
     # get number of atoms from first line of XYZ file
     nat = int(xyz.split("\n")[0])
-    if verbosity > 2:
+    if verbosity > 3:
         print(" " * 3 + f"Total number of atoms: {nat}")
     return nat
 
@@ -507,7 +557,7 @@ def pubgrep(
     This function is used to search the compounds in the PubChem database.
     """
 
-    if not skip:
+    if skip:
         test_pubchem_server(verbosity)
 
     # if len of compounds is 1, take it as a single compound
@@ -542,7 +592,7 @@ def pubgrep(
         else:
             cid = compound
             name = result
-        if verbosity > 2:
+        if verbosity > 3:
             print(f"Found CID {cid} for {name}.")
         if "PUGREST.NotFound" in result or "PUGREST.BadRequest" in result:
             not_found_compounds.append(compound)
@@ -555,58 +605,35 @@ def pubgrep(
                 verbosity=verbosity,
             )
             found_compounds.append(comp)
-            if verbosity > 0:
+            if verbosity > 1:
                 print(comp)
 
     failed_compounds = []
     successful_compounds = []
+
 
     if output_format == "list":
         with open("found_compounds.csv", "w", encoding="utf-8") as file:
             for comp in found_compounds:
                 print(comp, file=file)
     elif output_format == "sdf":
-        for comp in found_compounds:
-            # > Create the directory for the compound
-            comp.wdir.mkdir(parents=True, exist_ok=True)
+        wrap_process_compound = partial(
+            process_compound, optimization=optimization, verbosity=verbosity
+        )
+        if verbosity > 3:
+            print(f"Using {mp.cpu_count()} cores for processing.")
+        with mp.Pool(processes=mp.cpu_count()) as pool:
+            for result in tqdm(pool.imap(wrap_process_compound, found_compounds), total=len(found_compounds)):
+                success, failure = result
+                if success:
+                    successful_compounds.append(success)
+                if failure:
+                    failed_compounds.append(failure)
 
-            # > Retrieve the 3D structure
-            try:
-                if verbosity > 2:
-                    print(f"Retrieving 3D structure for {comp.cid}.")
-                comp.retrieve_3d_sdf()
-            except (XtbFailure, ValueError) as e:
-                if verbosity > 1:
-                    print(f"Error in retrieving 3D structure for {comp.cid}. {e}")
-                failed_compounds.append(comp)
-                continue
-
-            # > Convert the structure to the desired format
-            comp.convert_structure(".xyz")
-
-            # > Get the number of atoms
-            with open(comp.struc, "r", encoding="utf-8") as file:  # type: ignore
-                xyz = file.read()
-            comp.numatoms = get_numatoms_from_xyz(xyz, verbosity)
-
-            # > Optimize the structure
-            if optimization:
-                try:
-                    if verbosity > 2:
-                        print(f"Optimizing structure for {comp.cid}.")
-                    comp.opt_structure()
-                except XtbFailure as e:
-                    if verbosity > 1:
-                        print(f"Error in optimizing structure for {comp.cid}. {e}")
-                    failed_compounds.append(comp)
-                    continue
-
-            # > Appenned to the list of successful compounds.
-            successful_compounds.append(comp)
     elif output_format in ["logp", "logP"]:
         for comp in found_compounds:
             try:
-                if verbosity > 2:
+                if verbosity > 3:
                     print(f"Retrieving LogP for {comp.cid}.")
                 comp.retrieve_logp()
             except ValueError as e:
@@ -619,7 +646,6 @@ def pubgrep(
         raise ValueError("Invalid output format.")
 
     if successful_compounds:
-        # sort successful compounds by CID
         successful_compounds.sort(key=lambda x: int(x.cid))
         with open("compounds.csv", "w", encoding="utf-8") as file:
             print(successful_compounds[0].print_csv_header(), file=file)
