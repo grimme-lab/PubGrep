@@ -114,19 +114,54 @@ class Compound:
         self.chrg: int | None = None
         self.hlgap: float | None = None
         self.logp: float | None = None
+        self.numatoms: int | None = None
 
     def __str__(self):
         comp_string = f"{self.cid}" + f"\t{self.name}"
         if self.struc:
             comp_string += f"\t{self.struc.resolve()}"
+        if self.numatoms is not None:
+            comp_string += f"\t{self.numatoms}"
         if self.logp is not None:
             comp_string += f"\t{self.logp}"
         if self.chrg is not None:
             comp_string += f"\t{self.chrg}"
         if self.hlgap is not None:
-            comp_string += f"\t{self.hlgap}"
+            comp_string += f"\t{self.hlgap:.3f}"
 
         return comp_string
+
+    def print_csv_header(self):
+        """
+        This function is used to print the header of the csv file.
+        """
+        header_string = "CID\tName"
+        if self.struc:
+            header_string += "\tStructure Path"
+        if self.numatoms is not None:
+            header_string += "\tNumber of Atoms"
+        if self.logp is not None:
+            header_string += "\tLogP"
+        if self.chrg is not None:
+            header_string += "\tTotal Charge"
+        if self.hlgap is not None:
+            header_string += "\tHOMO-LUMO gap"
+        return header_string
+
+    def to_dict(self) -> dict:
+        """
+        This function is used to convert the compound object to a dictionary.
+        """
+        comp_dict = {
+            "CID": self.cid,
+            "Name": self.name,
+            "Structure Path": self.struc.resolve() if self.struc else None,
+            "Number of Atoms": self.numatoms,
+            "LogP": self.logp,
+            "Total Charge": self.chrg,
+            "HOMO-LUMO gap": self.hlgap,
+        }
+        return comp_dict
 
     def retrieve_logp(self):
         """
@@ -162,6 +197,8 @@ class Compound:
                 calc_dir=self.wdir,
                 args=[f"{self.cid}.sdf", "--gfn", "2", "--sp", "--ceasefiles"],
             )
+            if self.numatoms is None:
+                pass
             if self.hlgap is None:
                 self.hlgap = get_hlgap_from_xtb_output(xtb_out, self.verbosity)
             if self.chrg is None:
@@ -218,9 +255,7 @@ class Compound:
             self.chrg = get_charge_from_xtb_output(
                 xtb_out=xtb_out, verbosity=self.verbosity
             )
-            with open(
-                Path(f"{self.wdir}/gfnff_convert.sdf"), "w", encoding="UTF-8"
-            ) as f:
+            with open(Path(f"{self.wdir}/.CHRG"), "w", encoding="UTF-8") as f:
                 f.write(str(self.chrg) + "\n")
         finally:
             files_to_delete = [
@@ -257,7 +292,7 @@ class Compound:
         """
         This function is used to optimize the structure of the compound.
         """
-        _, _, returncode = run_xtb(
+        xtb_out, _, returncode = run_xtb(
             xtb_path=self.xtb_path,
             calc_dir=self.wdir,
             args=[self.struc.name, "--opt", "--gfn", "2", "--ceasefiles"],
@@ -277,6 +312,7 @@ class Compound:
         # check if the optimization was successful
         if returncode != 0 or not xtb_opt_file.exists():
             raise XtbFailure("xTB optimization failed.")
+        self.hlgap = get_hlgap_from_xtb_output(xtb_out, self.verbosity)
 
         # rename the optimized structure
         xtb_opt_file.rename(strucfile_opt)
@@ -326,7 +362,7 @@ def get_hlgap_from_xtb_output(output: str, verbosity: int) -> float:
             break
     if hlgap is None:
         raise ValueError("HOMO-LUMO gap not determined.")
-    if verbosity > 1:
+    if verbosity > 2:
         print(" " * 3 + f"HOMO-LUMO gap: {hlgap:5f}")
     return hlgap
 
@@ -343,9 +379,21 @@ def get_charge_from_xtb_output(xtb_out: str, verbosity: int) -> int:
             break
     if chrg is None:
         raise ValueError("Total charge could not be determined.")
-    if verbosity > 1:
+    if verbosity > 2:
         print(" " * 3 + f"Total charge: {chrg:6d}")
     return chrg
+
+
+def get_numatoms_from_xyz(xyz: str, verbosity: int) -> int:
+    """
+    This function is used to extract the total charge from the xtb output.
+    """
+    nat = None
+    # get number of atoms from first line of XYZ file
+    nat = int(xyz.split("\n")[0])
+    if verbosity > 2:
+        print(" " * 3 + f"Total number of atoms: {nat}")
+    return nat
 
 
 ### Argument parsing functions
@@ -454,7 +502,7 @@ def pubgrep(
     hlgap_thr: float,
     skip: bool,
     verbosity: int,
-):
+) -> list[Compound]:
     """
     This function is used to search the compounds in the PubChem database.
     """
@@ -519,7 +567,10 @@ def pubgrep(
                 print(comp, file=file)
     elif output_format == "sdf":
         for comp in found_compounds:
+            # > Create the directory for the compound
             comp.wdir.mkdir(parents=True, exist_ok=True)
+
+            # > Retrieve the 3D structure
             try:
                 if verbosity > 2:
                     print(f"Retrieving 3D structure for {comp.cid}.")
@@ -529,7 +580,16 @@ def pubgrep(
                     print(f"Error in retrieving 3D structure for {comp.cid}. {e}")
                 failed_compounds.append(comp)
                 continue
+
+            # > Convert the structure to the desired format
             comp.convert_structure(".xyz")
+
+            # > Get the number of atoms
+            with open(comp.struc, "r", encoding="utf-8") as file:  # type: ignore
+                xyz = file.read()
+            comp.numatoms = get_numatoms_from_xyz(xyz, verbosity)
+
+            # > Optimize the structure
             if optimization:
                 try:
                     if verbosity > 2:
@@ -540,6 +600,8 @@ def pubgrep(
                         print(f"Error in optimizing structure for {comp.cid}. {e}")
                     failed_compounds.append(comp)
                     continue
+
+            # > Appenned to the list of successful compounds.
             successful_compounds.append(comp)
     elif output_format in ["logp", "logP"]:
         for comp in found_compounds:
@@ -557,7 +619,10 @@ def pubgrep(
         raise ValueError("Invalid output format.")
 
     if successful_compounds:
+        # sort successful compounds by CID
+        successful_compounds.sort(key=lambda x: int(x.cid))
         with open("compounds.csv", "w", encoding="utf-8") as file:
+            print(successful_compounds[0].print_csv_header(), file=file)
             for comp in successful_compounds:
                 print(comp, file=file)
     else:
@@ -567,6 +632,8 @@ def pubgrep(
         with open("not_found.compound", "w", encoding="utf-8") as file:
             for compound in not_found_compounds:
                 file.write(f"{compound}\n")
+
+    return successful_compounds
 
 
 if __name__ == "__main__":
