@@ -104,9 +104,15 @@ class Compound:
     This class handles everything related to a compound.
     """
 
-    HLGAP_THR: float = 0.5
-
-    def __init__(self, name: str, cid: str, wdir: Path, xtb_path: Path, verbosity: int):
+    def __init__(
+        self,
+        name: str,
+        cid: str,
+        wdir: Path,
+        xtb_path: Path,
+        hlgap_thr: float,
+        verbosity: int,
+    ):
         """
         This function is used to initialize the compound object.
         """
@@ -114,6 +120,7 @@ class Compound:
         self.cid = cid
         self.wdir = wdir
         self.xtb_path: Path = xtb_path
+        self.hlgap_thr: float = hlgap_thr
         self.verbosity = verbosity
         self.struc: Path | None = None
         self.chrg: int | None = None
@@ -214,9 +221,9 @@ class Compound:
             with open(Path(f"{self.wdir}/.CHRG"), "w", encoding="UTF-8") as f:
                 f.write(str(self.chrg) + "\n")
 
-        if self.hlgap < self.HLGAP_THR:
+        if self.hlgap < self.hlgap_thr:
             raise ValueError(
-                f"HOMO-LUMO gap too small ({self.hlgap} (is) vs. {self.HLGAP_THR} (threshold) eV)"
+                f"HOMO-LUMO gap too small ({self.hlgap} (is) vs. {self.hlgap_thr} (threshold) eV)"
             )
 
         self.struc = self.wdir / f"{self.cid}.sdf"
@@ -303,7 +310,13 @@ class Compound:
         xtb_out, _, returncode = run_xtb(
             xtb_path=self.xtb_path,
             calc_dir=self.wdir,
-            args=[self.struc.name, "--opt", "--gfn", "2", "--ceasefiles"],
+            args=[
+                self.struc.name,
+                "--opt",
+                "--gfn",
+                "2",
+                "--ceasefiles",
+            ],
         )
 
         # delete unnecessary files
@@ -321,13 +334,23 @@ class Compound:
         if returncode != 0 or not xtb_opt_file.exists():
             raise XtbFailure("xTB optimization failed.")
         self.hlgap = get_hlgap_from_xtb_output(xtb_out, self.verbosity)
+        if self.hlgap < self.hlgap_thr:
+            raise ValueError(
+                f"HOMO-LUMO gap too small ({self.hlgap} (is) vs. {self.hlgap_thr} (threshold) eV)"
+            )
 
         # rename the optimized structure
         xtb_opt_file.rename(strucfile_opt)
         self.struc = strucfile_opt
 
 
-def process_compound(comp: Compound, optimization: bool = False, verbosity: int = 0) -> tuple:
+def process_compound(
+    comp: Compound, optimization: bool = False, verbosity: int = 0
+) -> tuple:
+    """
+    This function is used to process the compound.
+    It acts as a wrapper for the multiprocessing pool.
+    """
     # > Wait a random time to avoid overloading the server
     time.sleep(random.uniform(0.0, 2.5))
 
@@ -377,6 +400,7 @@ def run_xtb(xtb_path: Path, calc_dir: Path, args: list) -> tuple:
             stdout=sp.PIPE,
             stderr=sp.PIPE,
             cwd=calc_dir,
+            timeout=180,
         )
         stdout = xtb_out.stdout.decode()
         with open(calc_dir / "xtb.out", "w", encoding="utf-8") as file:
@@ -582,7 +606,6 @@ def pubgrep(
 
     found_compounds: list[Compound] = []
     not_found_compounds: list[str] = []
-    Compound.HLGAP_THR = hlgap_thr
 
     for compound in compound_list:
         result = search_compound(compound, input_format)
@@ -602,6 +625,7 @@ def pubgrep(
                 cid=cid,
                 wdir=Path(basedir / f"{cid}"),
                 xtb_path=xtb_path,
+                hlgap_thr=hlgap_thr,
                 verbosity=verbosity,
             )
             found_compounds.append(comp)
@@ -610,7 +634,6 @@ def pubgrep(
 
     failed_compounds = []
     successful_compounds = []
-
 
     if output_format == "list":
         with open("found_compounds.csv", "w", encoding="utf-8") as file:
@@ -623,7 +646,10 @@ def pubgrep(
         if verbosity > 3:
             print(f"Using {mp.cpu_count()} cores for processing.")
         with mp.Pool(processes=mp.cpu_count()) as pool:
-            for result in tqdm(pool.imap(wrap_process_compound, found_compounds), total=len(found_compounds)):
+            for result in tqdm(
+                pool.imap(wrap_process_compound, found_compounds),
+                total=len(found_compounds),
+            ):
                 success, failure = result
                 if success:
                     successful_compounds.append(success)
