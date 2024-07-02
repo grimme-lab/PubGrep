@@ -5,5 +5,7 @@ dependencies:
   - pip
   - xtb>=6.6.1
   - requests
+  - tqdm>=4.66.0
   - pip:
-    - types-requests 
+    - types-requests
+    - types-tqdm

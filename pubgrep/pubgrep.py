@@ -11,9 +11,9 @@ import subprocess as sp
 import shutil
 import multiprocessing as mp
 from functools import partial
+
 import random
 import time
-
 from tqdm import tqdm
 import requests
 
@@ -378,7 +378,7 @@ def process_compound(
             if verbosity > 3:
                 print(f"Optimizing structure for {comp.cid}.")
             comp.opt_structure()
-        except XtbFailure as e:
+        except (XtbFailure, ValueError) as e:
             if verbosity > 1:
                 print(f"Error in optimizing structure for {comp.cid}. {e}")
             return None, comp
@@ -547,7 +547,12 @@ def cli():
         basedir = args.basedir
         hlgap_thr = args.hlgap_thr
 
-        xtb_path = Path(shutil.which("xtb")).resolve()
+        whichxtb = shutil.which("xtb")
+        if not whichxtb:
+            raise ValueError(
+                "'xtb' seems not to be in the $PATH. Check if xtb is installed in your environment/on your system."
+            )
+        xtb_path = Path(whichxtb).resolve()
 
         pubgrep(
             xtb_path=xtb_path,
