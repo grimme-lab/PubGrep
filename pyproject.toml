@@ -21,7 +21,7 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
 ]
-dependencies = ["requests", "types-requests"]
+dependencies = ["requests", "tqdm>=4.66.0", "types-requests", "types-tqdm"]
 requires-python = ">=3.12"
 
 [project.scripts]

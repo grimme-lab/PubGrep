@@ -1,0 +1,1 @@
+rm -rf pubchem_compounds compounds.csv; pubgrep --input cid --verbosity 3 --opt list.txt
