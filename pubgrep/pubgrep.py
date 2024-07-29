@@ -346,7 +346,7 @@ class Compound:
 
 def process_compound(
     comp: Compound, optimization: bool = False, verbosity: int = 0
-) -> tuple:
+) -> tuple[Compound, int]:
     """
     This function is used to process the compound.
     It acts as a wrapper for the multiprocessing pool.
@@ -362,7 +362,7 @@ def process_compound(
     except (XtbFailure, ValueError) as e:
         if verbosity > 1:
             print(f"Error in retrieving 3D structure for {comp.cid}. {e}")
-        return None, comp
+        return comp, 1
 
     # > Convert the structure to the desired format
     comp.convert_structure(".xyz")
@@ -381,9 +381,9 @@ def process_compound(
         except (XtbFailure, ValueError) as e:
             if verbosity > 1:
                 print(f"Error in optimizing structure for {comp.cid}. {e}")
-            return None, comp
+            return comp, 1
 
-    return comp, None
+    return comp, 0
 
 
 ### Technical functions for running and parsing xtb
@@ -655,11 +655,11 @@ def pubgrep(
                 pool.imap(wrap_process_compound, found_compounds),
                 total=len(found_compounds),
             ):
-                success, failure = result
-                if success:
-                    successful_compounds.append(success)
-                if failure:
-                    failed_compounds.append(failure)
+                returncomp, status = result
+                if status == 0:
+                    successful_compounds.append(returncomp)
+                if status != 0:
+                    failed_compounds.append(returncomp)
 
     elif output_format in ["logp", "logP"]:
         for comp in found_compounds:
